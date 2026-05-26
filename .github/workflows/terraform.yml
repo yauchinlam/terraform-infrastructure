@@ -1,0 +1,82 @@
+# Manual Terraform runs for environments/dev.
+#
+# Prerequisites (complete local bootstrap first):
+#   1. Local terraform apply created the storage account and deploy identity.
+#   2. State was migrated to the Azure backend (Step 2 in README.md).
+#   3. GitHub repository variables are configured (see README.md).
+#
+# This workflow does not run on push. Use workflow_dispatch until you enable
+# automatic triggers on main.
+
+name: Terraform
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Terraform action to run
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: true
+  TF_VAR_location: ${{ vars.AZURE_LOCATION }}
+
+jobs:
+  terraform:
+    name: Terraform (${{ inputs.action }})
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    defaults:
+      run:
+        working-directory: environments/dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.0
+
+      - name: Configure remote backend
+        run: |
+          cat > backend.tf <<'EOF'
+          terraform {
+            backend "azurerm" {
+              use_azuread_auth = true
+            }
+          }
+          EOF
+
+      - name: Terraform init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.AZURE_BACKEND_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.AZURE_BACKEND_CONTAINER }}" \
+            -backend-config="key=${{ vars.AZURE_BACKEND_KEY }}"
+
+      - name: Terraform plan
+        if: inputs.action == 'plan' || inputs.action == 'apply'
+        run: terraform plan -out=tfplan -no-color
+
+      - name: Terraform apply
+        if: inputs.action == 'apply'
+        run: terraform apply -auto-approve tfplan

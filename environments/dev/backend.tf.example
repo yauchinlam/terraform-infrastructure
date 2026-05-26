@@ -1,0 +1,13 @@
+# Copy to backend.tf after the first local-state apply creates the storage account.
+#
+#   terraform init -migrate-state
+#
+# terraform {
+#   backend "azurerm" {
+#     resource_group_name  = "rg-<github-repo-name>-<env>"
+#     storage_account_name = "<from terraform output tfstate_storage_account_name>"
+#     container_name       = "tfstate"
+#     key                  = "bootstrap/<env>.tfstate"
+#     use_azuread_auth     = true
+#   }
+# }

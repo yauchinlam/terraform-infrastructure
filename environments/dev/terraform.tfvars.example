@@ -1,0 +1,17 @@
+# Copy to terraform.tfvars and adjust as needed.
+# terraform.tfvars is gitignored.
+#
+# Set the target subscription before plan/apply (not stored in this repo):
+#   az account set --subscription "<subscription-id>"
+# or export ARM_SUBSCRIPTION_ID="<subscription-id>"
+
+github_owner     = "<github-owner>"
+github_repo_name = "terraform-infrastructure"
+environment      = "dev"
+location         = "eastus" # replace with your Azure region
+
+tags = {
+  repository  = "terraform-infrastructure"
+  environment = "dev"
+  managed_by  = "terraform"
+}
