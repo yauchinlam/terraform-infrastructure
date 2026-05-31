@@ -340,10 +340,126 @@ terraform apply
 
 Local Terraform runs use your own Azure credentials (`az login`). GitHub Actions uses the deploy managed identity via OIDC once Steps 3–5 are complete.
 
+## Using this bootstrap with other GitHub repositories
+
+This stack bootstraps **this repository only**. The deploy identity, federated credential, and RBAC here apply to `terraform-infrastructure`—not to every other repo in your organization.
+
+Each additional Terraform repository needs **its own** identity, OIDC trust, RBAC, state configuration, GitHub Actions secrets, and resource groups. You can **reuse the state storage account** created here (recommended) or create a separate one per repo.
+
+```mermaid
+flowchart LR
+  subgraph shared [Optional shared state account]
+    SA[Storage account + tfstate container]
+  end
+
+  subgraph repoA [terraform-infrastructure]
+    K1[bootstrap/dev.tfstate]
+    ID1[Deploy identity + OIDC this repo]
+  end
+
+  subgraph repoB [another-terraform-repo]
+    K2[another-repo/dev.tfstate]
+    ID2[Deploy identity + OIDC that repo]
+    RGB[rg-another-repo-dev]
+  end
+
+  SA --> K1
+  SA --> K2
+  ID1 --> repoA
+  ID2 --> RGB
+```
+
+### 1. Remote state (recommended)
+
+**Option A — Same storage account, different state key (common, cheaper)**
+
+- Reuse the storage account and `tfstate` container from this bootstrap.
+- After this stack is applied, read names from outputs (do not hardcode secrets in docs or public repos):
+
+  ```bash
+  cd environments/dev
+  terraform output -raw tfstate_storage_account_name
+  terraform output -raw resource_group_name
+  ```
+
+- In the **other** repo, use a **unique** state key, for example `my-app-infra/dev.tfstate`.
+- Backend block (same auth pattern as this repo):
+
+  ```hcl
+  terraform {
+    backend "azurerm" {
+      resource_group_name  = "<bootstrap-resource-group>"
+      storage_account_name = "<bootstrap-storage-account>"
+      container_name       = "tfstate"
+      key                  = "my-app-infra/dev.tfstate"
+      use_azuread_auth     = true
+      use_oidc             = true
+    }
+  }
+  ```
+
+**Option B — Its own storage account (stronger isolation)**
+
+- Run a bootstrap stack (or module) in that repo to create a dedicated state storage account.
+- Fully separate blast radius; no dependency on this repo’s storage account for state.
+
+### 2. Its own user-assigned managed identity
+
+- Example name: `id-my-app-infra-dev-deploy`
+- Create it in **that repo’s** Terraform (or a small dedicated “identity” stack).
+- Do **not** reuse `id-terraform-infrastructure-dev-deploy` from this repo.
+
+### 3. Its own GitHub OIDC federated credential
+
+- Add `azurerm_federated_identity_credential` on **that repo’s** managed identity.
+- Scope the subject to **that** repository and branch, for example:
+
+  ```text
+  repo:<github-owner>/<repo-name>:ref:refs/heads/main
+  ```
+
+- The federated credential in **this** repo only trusts `terraform-infrastructure`. Other repos need their own credential.
+
+### 4. Its own RBAC (least privilege)
+
+| Role | Scope |
+|------|--------|
+| **Contributor** | Resource group(s) **that repo** manages (e.g. `rg-my-app-infra-dev`) |
+| **Storage Blob Data Contributor** | State container or storage account (if using shared tfstate storage from Option A) |
+
+Do **not** grant every repo **Contributor** on `rg-terraform-infrastructure-dev` unless that repo must manage bootstrap resources in this stack.
+
+### 5. Its own GitHub Actions setup
+
+Mirror the pattern in `.github/workflows/terraform.yml` from this repo:
+
+- `permissions: id-token: write`
+- `azure/login` with **that repo’s** `AZURE_CLIENT_ID` (from **its** deploy identity output)
+- GitHub **Secrets** (not Variables): `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_LOCATION`, `TF_VAR_github_owner`, etc.
+- Provider and backend: `use_oidc = true`, `storage_use_azuread_auth = true`
+- `ARM_USE_OIDC`, `ARM_CLIENT_ID`, `ARM_TENANT_ID`, `ARM_SUBSCRIPTION_ID` on Terraform steps
+- Workflow trigger: e.g. `push` to `main` (or plan on PR + apply on `main` if you add a `pull_request` federated credential)
+
+See [service principal OIDC](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_oidc) and [hashicorp/terraform#34456](https://github.com/hashicorp/terraform/issues/34456).
+
+### 6. Its own Terraform code
+
+- **`terraform.tfvars`** (gitignored): `github_owner`, `location`, and other inputs.
+- **`backend.tf`**: points at the chosen storage account and a **unique** state key (Option A or B).
+- **Resources** in that repo’s resource groups (e.g. `rg-my-app-infra-dev`), not in `rg-terraform-infrastructure-dev`, unless intentional.
+
+### Checklist for a new repo
+
+1. Choose remote state: shared account + new key (Option A) or new storage account (Option B).
+2. Create `rg-{github-repo-name}-{env}` (or your naming convention).
+3. Create deploy managed identity + federated credential for `repo:<owner>/<repo>:ref:refs/heads/main`.
+4. Assign RBAC: **Contributor** on that repo’s RGs; **Storage Blob Data Contributor** on state scope.
+5. Add GitHub Actions workflow and repository **secrets**.
+6. Run first apply locally (bootstrap), migrate state, then enable CI—same flow as [Bootstrap workflow](#bootstrap-workflow) above.
+
 ## What is not included yet
 
 - **PR plan workflows** — not configured; CI runs only on `push` to `main`
-- **PR plan workflows** — would require an additional federated credential for `pull_request` subjects
 - **Additional environments** — e.g. `environments/prod/` using the same patterns with `environment = "prod"`
 
 ## Adding another environment
@@ -374,7 +490,7 @@ Resource groups follow `rg-{github-repo-name}-{env}` (for example, `rg-terraform
 | Missing variables | Ensure `terraform.tfvars` exists and sets required values (e.g. `location`) |
 | Backend init fails | Verify storage account name, RG name, and that you are authenticated |
 | `init -migrate-state` returns 403 | Complete [Step 2](#step-2--grant-your-user-blob-access-before-migrating-state); wait for Entra propagation; confirm `az storage blob list --auth-mode login` works |
-| GitHub Actions auth fails | Confirm repo variables, that the workflow runs on `main`, and OIDC subject matches |
+| GitHub Actions auth fails | Confirm repo **secrets**, that the workflow runs on `main`, and OIDC subject matches |
 | GitHub Actions init fails | Complete Step 3 first; verify committed `backend.tf` matches `terraform output` |
 | `unsupported checkable object kind "var"` | CI Terraform is older than the version that wrote remote state; align workflow `terraform_version` with local (`terraform version`) |
 | `Tenant ID / Client ID must be configured when authenticating with OIDC` | Workflow must set `ARM_USE_OIDC`, `ARM_CLIENT_ID`, `ARM_TENANT_ID`, and `ARM_SUBSCRIPTION_ID` from GitHub **secrets**; `azure/login` alone is not enough for `terraform init` |
