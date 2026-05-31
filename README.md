@@ -79,7 +79,7 @@ Subscription IDs and other account-specific values belong in private configurati
 .
 ├── .github/
 │   └── workflows/
-│       └── terraform.yml          # Manual CI (workflow_dispatch); see below
+│       └── terraform.yml          # CI on push to main (plan + apply); see below
 ├── .gitignore
 ├── LICENSE
 ├── README.md
@@ -162,14 +162,14 @@ Complete these **five steps in order**:
 | **2** | Grant your user blob access for state migration | Azure (one-time) |
 | **3** | Migrate state to Azure Storage | Your machine |
 | **4** | Configure GitHub repository secrets | GitHub repo settings |
-| **5** | Run the Terraform workflow | GitHub Actions (`workflow_dispatch`) |
+| **5** | Terraform in CI (optional check) | GitHub Actions on push to `main` |
 
 ```mermaid
 flowchart TD
   A["Step 1: Copy terraform.tfvars + local apply"] --> B["Step 2: Blob RBAC for signed-in user"]
   B --> C["Step 3: backend.tf + init -migrate-state"]
   C --> D["Step 4: Configure GitHub repo secrets"]
-  D --> E["Step 5: Run workflow_dispatch on main"]
+  D --> E["Step 5: Push to main triggers plan + apply"]
 ```
 
 ### Step 1 — First apply (local state)
@@ -303,7 +303,7 @@ Do not commit subscription IDs, tenant IDs, or client IDs in Terraform code or t
 
 The workflow at `.github/workflows/terraform.yml` is included in this repo but **does not work until Steps 1–4 are complete**. The first apply must create the storage account and migrate state before CI can use a remote backend.
 
-The workflow uses **`workflow_dispatch` only** — it does not run on every push. Run it manually from the GitHub Actions tab until you are ready to add `push`/`pull_request` triggers on `main`.
+On every **push to `main`**, the workflow runs **`terraform plan`** then **`terraform apply`**. You can also run it manually via **`workflow_dispatch`** (plan only, or plan + apply).
 
 #### Why CI cannot run the bootstrap first apply
 
@@ -319,14 +319,13 @@ repo:{github-owner}/{github-repo-name}:ref:refs/heads/main
 
 Only workflows running on the **`main` branch** of this repo can authenticate as the deploy identity. Run the workflow from `main` after you merge these changes.
 
-#### Run the workflow
+#### CI behavior
 
 1. Complete Steps 1–4.
-2. Push this repo to GitHub and merge to `main`.
-3. Open **Actions → Terraform → Run workflow**.
-4. Choose `plan` or `apply`.
+2. Push to **`main`** — the workflow plans and applies automatically.
+3. Optional: **Actions → Terraform → Run workflow** for a manual **plan** or **apply** without a new commit.
 
-When you are ready for automatic runs, add triggers to `terraform.yml` (for example `push` and `pull_request` on `main`). Keep apply restricted to `main` to match the OIDC subject.
+Apply on push is restricted to **`main`** to match the OIDC federated credential subject.
 
 ### Ongoing local use
 
@@ -345,7 +344,7 @@ Local Terraform runs use your own Azure credentials (`az login`). GitHub Actions
 
 ## What is not included yet
 
-- **Automatic CI triggers on push** — workflow is manual (`workflow_dispatch`) until you enable it
+- **PR plan workflows** — not configured; only `push` to `main` and `workflow_dispatch` run today
 - **PR plan workflows** — would require an additional federated credential for `pull_request` subjects
 - **Additional environments** — e.g. `environments/prod/` using the same patterns with `environment = "prod"`
 

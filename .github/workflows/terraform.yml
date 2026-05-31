@@ -1,4 +1,4 @@
-# Manual Terraform runs for environments/dev.
+# Terraform for environments/dev.
 #
 # Prerequisites (complete local bootstrap first; see README.md):
 #   1. Local terraform apply created the storage account and deploy identity.
@@ -6,12 +6,15 @@
 #   3. State was migrated to the Azure backend.
 #   4. GitHub repository secrets are configured.
 #
-# This workflow does not run on push. Use workflow_dispatch until you enable
-# automatic triggers on main.
+# On push to main: plan, then apply.
+# Manual runs: workflow_dispatch (plan only, or plan + apply).
 
 name: Terraform
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       action:
@@ -27,9 +30,13 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: terraform-dev
+  cancel-in-progress: false
+
 jobs:
   terraform:
-    name: Terraform (${{ inputs.action }})
+    name: Terraform (${{ github.event_name == 'push' && 'plan+apply' || inputs.action }})
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     env:
@@ -66,9 +73,9 @@ jobs:
         run: terraform init
 
       - name: Terraform plan
-        if: inputs.action == 'plan' || inputs.action == 'apply'
+        if: github.event_name == 'push' || inputs.action == 'plan' || inputs.action == 'apply'
         run: terraform plan -out=tfplan -no-color
 
       - name: Terraform apply
-        if: inputs.action == 'apply'
+        if: github.event_name == 'push' || inputs.action == 'apply'
         run: terraform apply -auto-approve tfplan
