@@ -368,6 +368,7 @@ Resource groups follow `rg-{github-repo-name}-{env}` (for example, `rg-terraform
 | `init -migrate-state` returns 403 | Complete [Step 2](#step-2--grant-your-user-blob-access-before-migrating-state); wait for Entra propagation; confirm `az storage blob list --auth-mode login` works |
 | GitHub Actions auth fails | Confirm repo variables, that the workflow runs on `main`, and OIDC subject matches |
 | GitHub Actions init fails | Complete Step 3 first; verify committed `backend.tf` matches `terraform output` |
+| `unsupported checkable object kind "var"` | CI Terraform is older than the version that wrote remote state; align workflow `terraform_version` with local (`terraform version`) |
 | `Tenant ID / Client ID must be configured when authenticating with OIDC` | Workflow must set `ARM_USE_OIDC`, `ARM_CLIENT_ID`, `ARM_TENANT_ID`, and `ARM_SUBSCRIPTION_ID` (from GitHub variables) on Terraform steps; `azure/login` alone is not enough for `terraform init` |
 | `Azure CLI is only supported as a User` in CI | Set **`use_oidc = true`** on the [azurerm provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_oidc) and **backend** (see [hashicorp/terraform#34456](https://github.com/hashicorp/terraform/issues/34456)) |
 | Storage account name conflict | Names are globally unique; adjust `github_repo_name` or add a suffix strategy if needed |
