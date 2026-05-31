@@ -73,7 +73,8 @@ Subscription IDs and other account-specific values belong in private configurati
         ├── oidc.tf                  # GitHub Actions federated identity credential
         ├── outputs.tf               # Values needed for backend config and CI setup
         ├── backend.tf.example       # Remote backend template (apply after first run)
-        └── terraform.tfvars.example # Private config template (copy to terraform.tfvars)
+        ├── terraform.tfvars.example # Private config template (copy to terraform.tfvars)
+        └── .terraform.lock.hcl      # Provider version lock (commit after terraform init)
 ```
 
 ## Prerequisites
@@ -123,7 +124,9 @@ Edit `terraform.tfvars` and set at minimum:
 - `github_owner` — your GitHub user or organization name (for OIDC)
 - `location` — your Azure region
 
-Do **not** commit `terraform.tfvars`, `backend.tf` (once populated), state files, or `.terraform.lock.hcl`. These are listed in `.gitignore`.
+Do **not** commit `terraform.tfvars`, `backend.tf` (once populated), or state files. These are listed in `.gitignore`.
+
+**Do commit** `environments/dev/.terraform.lock.hcl` after `terraform init`. The lock file pins provider versions so local runs and CI use the same `azurerm` release.
 
 ## Bootstrap workflow
 
