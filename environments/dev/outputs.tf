@@ -23,11 +23,13 @@ output "resource_group_id" {
 output "tfstate_storage_account_name" {
   description = "Storage account name for Terraform remote state."
   value       = azurerm_storage_account.tfstate.name
+  sensitive   = true
 }
 
 output "tfstate_storage_account_id" {
   description = "Resource ID of the Terraform state storage account."
   value       = azurerm_storage_account.tfstate.id
+  sensitive   = true
 }
 
 output "tfstate_container_name" {
@@ -48,6 +50,7 @@ output "deploy_identity_client_id" {
 output "deploy_identity_principal_id" {
   description = "Principal ID of the deployment managed identity (for RBAC assignments)."
   value       = azurerm_user_assigned_identity.deploy.principal_id
+  sensitive   = true
 }
 
 output "github_oidc_subject_main" {
