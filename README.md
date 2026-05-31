@@ -25,20 +25,37 @@ The `dev` environment currently provisions:
 | Blob container | `tfstate` | Holds state files |
 | User-assigned identity | `id-{github-repo-name}-{env}-deploy` | CI/CD deployments for this repo only |
 | RBAC (Contributor) | Bootstrap resource group | Lets the deploy identity manage bootstrap resources |
-| RBAC (Storage Blob Data Contributor) | State storage account | Lets the deploy identity read/write remote state |
+| RBAC (Storage Blob Data Contributor) | `tfstate` container only | Lets the deploy identity read/write remote state (not the whole account) |
+| Management lock (CanNotDelete) | State storage account | Blocks accidental deletion of the state account |
 | Federated identity credential | On deploy identity | Lets GitHub Actions on `main` authenticate via OIDC |
 
 The storage account enables blob versioning, change feed, and 30-day soft delete for blobs and containers.
 
-### State storage security (`allow_nested_items_to_be_public = false`)
+### State storage security
 
-The tfstate storage account sets **`allow_nested_items_to_be_public = false`**. This is important for a bootstrap backend:
+The tfstate storage account is hardened for **Azure AD only** (managed identity / OIDC). Review `environments/dev/main.tf` before apply.
 
-- **What it does:** Prevents blobs (including state files) from being exposed via anonymous public read, even if someone later changes a container or blob ACL incorrectly.
-- **Why it matters:** Remote state contains resource IDs, and often secrets or sensitive metadata. Public blob access on a state account is a common misconfiguration that leads to data exposure.
-- **Defense in depth:** The `tfstate` container is already `private`, but account-level public access blocking closes a hole that container settings alone do not always prevent.
+| Setting | Value | Purpose |
+|---------|--------|---------|
+| `shared_access_key_enabled` | `false` | No long-lived storage account keys; RBAC + Entra ID only |
+| `default_to_oauth_authentication` | `true` | Prefer OAuth (Azure AD) over shared key for blob APIs |
+| `https_traffic_only_enabled` | `true` | Encrypt data in transit |
+| `min_tls_version` | `TLS1_2` | Reject older TLS |
+| `allow_nested_items_to_be_public` | `false` | Block anonymous public blob access |
+| `cross_tenant_replication_enabled` | `false` | Reduce cross-tenant data movement risk |
+| `local_user_enabled` / `nfsv3_enabled` / `sftp_enabled` | `false` | Disable unused access methods |
+| `infrastructure_encryption_enabled` | `true` | Second layer of encryption at rest |
+| Container `container_access_type` | `private` | No public container ACL |
+| Blob versioning + soft delete | enabled | Recovery from overwrite or accidental delete |
+| `azurerm_management_lock` | `CanNotDelete` | Prevent deleting the state storage account by mistake |
 
-Do not set this to `true` on the Terraform state storage account unless you have a rare, documented requirement and additional controls.
+**Backend requirement:** Local `backend.tf` and CI must use **`use_azuread_auth = true`** (see `backend.tf.example`). Use `az login` locally or GitHub OIDC—not storage account keys.
+
+**RBAC scope:** **Storage Blob Data Contributor** is assigned on the **`tfstate` container**, not the entire storage account, so the deploy identity cannot read unrelated blobs if they are added later.
+
+**Known trade-off:** `public_network_access_enabled` remains allowed (default) so GitHub Actions and local Terraform can reach the account over the internet using Azure AD. Tightening to private endpoints or storage firewalls requires fixed egress IPs or a self-hosted runner and is not configured in this bootstrap stack.
+
+Do not re-enable shared keys, public blob access, or broad SAS policies on this account without a documented exception.
 
 Each GitHub repo that runs Terraform should follow the same pattern: its own deploy identity and RBAC scoped only to the resource groups and state storage that repo needs. This stack configures RBAC for **this** repository only.
 
@@ -286,7 +303,8 @@ Resource groups follow `rg-{github-repo-name}-{env}` (for example, `rg-terraform
 
 ## Security notes
 
-- Keep **`allow_nested_items_to_be_public = false`** on the state storage account (see [State storage security](#state-storage-security-allow_nested_items_to_be_public--false)).
+- Review [State storage security](#state-storage-security) before first `terraform apply`; do not weaken storage or RBAC settings without cause.
+- Use **`use_azuread_auth = true`** on the backend; never store storage account keys in GitHub or this repository.
 - Never commit subscription IDs, storage account access keys, or populated `terraform.tfvars` / `backend.tf` files.
 - Use `terraform.tfvars.example` and `backend.tf.example` as templates only.
 - Review `terraform plan` before every apply.
