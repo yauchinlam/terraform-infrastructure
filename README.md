@@ -303,7 +303,7 @@ Do not commit subscription IDs, tenant IDs, or client IDs in Terraform code or t
 
 The workflow at `.github/workflows/terraform.yml` is included in this repo but **does not work until Steps 1–4 are complete**. The first apply must create the storage account and migrate state before CI can use a remote backend.
 
-On every **push to `main`**, the workflow runs **`terraform plan`** then **`terraform apply`**. You can also run it manually via **`workflow_dispatch`** (plan only, or plan + apply).
+On every **push to `main`**, the workflow runs **`terraform plan`** then **`terraform apply`**.
 
 #### Why CI cannot run the bootstrap first apply
 
@@ -323,9 +323,7 @@ Only workflows running on the **`main` branch** of this repo can authenticate as
 
 1. Complete Steps 1–4.
 2. Push to **`main`** — the workflow plans and applies automatically.
-3. Optional: **Actions → Terraform → Run workflow** for a manual **plan** or **apply** without a new commit.
-
-Apply on push is restricted to **`main`** to match the OIDC federated credential subject.
+Apply runs only on **`main`** to match the OIDC federated credential subject.
 
 ### Ongoing local use
 
@@ -344,7 +342,7 @@ Local Terraform runs use your own Azure credentials (`az login`). GitHub Actions
 
 ## What is not included yet
 
-- **PR plan workflows** — not configured; only `push` to `main` and `workflow_dispatch` run today
+- **PR plan workflows** — not configured; CI runs only on `push` to `main`
 - **PR plan workflows** — would require an additional federated credential for `pull_request` subjects
 - **Additional environments** — e.g. `environments/prod/` using the same patterns with `environment = "prod"`
 

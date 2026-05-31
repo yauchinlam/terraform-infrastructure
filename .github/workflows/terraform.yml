@@ -6,8 +6,7 @@
 #   3. State was migrated to the Azure backend.
 #   4. GitHub repository secrets are configured.
 #
-# On push to main: plan, then apply.
-# Manual runs: workflow_dispatch (plan only, or plan + apply).
+# Trigger: push to main only — plan, then apply.
 
 name: Terraform
 
@@ -15,16 +14,6 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
-    inputs:
-      action:
-        description: Terraform action to run
-        required: true
-        default: plan
-        type: choice
-        options:
-          - plan
-          - apply
 
 permissions:
   id-token: write
@@ -36,9 +25,8 @@ concurrency:
 
 jobs:
   terraform:
-    name: Terraform (${{ github.event_name == 'push' && 'plan+apply' || inputs.action }})
+    name: Terraform (plan + apply)
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     env:
       TF_IN_AUTOMATION: true
       TF_VAR_location: ${{ secrets.AZURE_LOCATION }}
@@ -73,9 +61,7 @@ jobs:
         run: terraform init
 
       - name: Terraform plan
-        if: github.event_name == 'push' || inputs.action == 'plan' || inputs.action == 'apply'
         run: terraform plan -out=tfplan -no-color
 
       - name: Terraform apply
-        if: github.event_name == 'push' || inputs.action == 'apply'
         run: terraform apply -auto-approve tfplan
