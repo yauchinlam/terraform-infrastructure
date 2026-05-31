@@ -53,7 +53,11 @@ The tfstate storage account is hardened for **Azure AD only** (managed identity 
 
 **RBAC scope:** **Storage Blob Data Contributor** is assigned on the **`tfstate` container**, not the entire storage account, so the deploy identity cannot read unrelated blobs if they are added later.
 
-**Known trade-off:** `public_network_access_enabled` remains allowed (default) so GitHub Actions and local Terraform can reach the account over the internet using Azure AD. Tightening to private endpoints or storage firewalls requires fixed egress IPs or a self-hosted runner and is not configured in this bootstrap stack.
+**Networking trade-off (not implemented):** Stricter isolation would put the state storage account behind an **Azure Private Endpoint** and restrict access to your virtual network only. That is the preferred pattern for production state when traffic should never use the public internet.
+
+This bootstrap does **not** configure that, because **GitHub-hosted runners** (the default for Actions) run outside your Azure network. They authenticate with OIDC and Azure AD, but they still reach Storage over its **public** HTTPS endpoint. A private endpoint is only reachable from inside a connected VNet (or on-premises via ExpressRoute/VPN), so hosted runners cannot use it without extra plumbing.
+
+The usual way to close that gap is a **self-hosted runner** (an agent you operate, typically a VM in the same VNet as the private endpoint) plus Private Link. That adds Azure compute and networking cost, runner maintenance, and often a heavier GitHub setup (larger teams or Enterprise policies around self-hosted agents)—not just flipping a Terraform flag. For that reason this repo keeps public network access on the storage account and relies on identity-based controls (no shared keys, no public blobs, scoped RBAC) until you adopt self-hosted runners and private endpoints deliberately.
 
 Do not re-enable shared keys, public blob access, or broad SAS policies on this account without a documented exception.
 
