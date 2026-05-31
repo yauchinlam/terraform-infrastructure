@@ -368,7 +368,7 @@ Resource groups follow `rg-{github-repo-name}-{env}` (for example, `rg-terraform
 | `init -migrate-state` returns 403 | Complete [Step 2](#step-2--grant-your-user-blob-access-before-migrating-state); wait for Entra propagation; confirm `az storage blob list --auth-mode login` works |
 | GitHub Actions auth fails | Confirm repo variables, that the workflow runs on `main`, and OIDC subject matches |
 | GitHub Actions init fails | Complete Step 3 first; verify backend variable values match `terraform output` |
-| `Azure CLI is only supported as a User` in CI | Workflow sets `ARM_USE_CLI=false` so Terraform uses OIDC from `azure/login`, not the runner's Azure CLI |
+| `Azure CLI is only supported as a User` in CI | Workflow sets `TF_VAR_use_azure_cli_auth=false` so the provider uses OIDC from `azure/login`; local runs keep the default `true` for `az login` |
 | Storage account name conflict | Names are globally unique; adjust `github_repo_name` or add a suffix strategy if needed |
 
 ## License

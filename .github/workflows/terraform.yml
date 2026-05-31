@@ -30,6 +30,7 @@ permissions:
 env:
   TF_IN_AUTOMATION: true
   TF_VAR_location: ${{ vars.AZURE_LOCATION }}
+  TF_VAR_use_azure_cli_auth: "false"
 
 jobs:
   terraform:
@@ -67,10 +68,6 @@ jobs:
           EOF
 
       - name: Terraform init
-        env:
-          # azure/login uses OIDC (service principal). The azurerm provider must not
-          # use Azure CLI auth on the runner — CLI auth only supports user accounts.
-          ARM_USE_CLI: false
         run: |
           terraform init \
             -backend-config="resource_group_name=${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}" \
@@ -80,12 +77,8 @@ jobs:
 
       - name: Terraform plan
         if: inputs.action == 'plan' || inputs.action == 'apply'
-        env:
-          ARM_USE_CLI: false
         run: terraform plan -out=tfplan -no-color
 
       - name: Terraform apply
         if: inputs.action == 'apply'
-        env:
-          ARM_USE_CLI: false
         run: terraform apply -auto-approve tfplan
