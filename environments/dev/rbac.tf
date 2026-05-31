@@ -3,7 +3,7 @@ resource "azurerm_role_assignment" "deploy_contributor" {
   role_definition_name = "Contributor"
   principal_id         = azurerm_user_assigned_identity.deploy.principal_id
 
-  skip_service_aad_check = true
+  skip_service_principal_aad_check = true
 }
 
 resource "azurerm_role_assignment" "deploy_tfstate_blob_contributor" {
@@ -11,5 +11,5 @@ resource "azurerm_role_assignment" "deploy_tfstate_blob_contributor" {
   role_definition_name = "Storage Blob Data Contributor"
   principal_id         = azurerm_user_assigned_identity.deploy.principal_id
 
-  skip_service_aad_check = true
+  skip_service_principal_aad_check = true
 }

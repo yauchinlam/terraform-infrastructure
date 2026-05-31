@@ -30,6 +30,16 @@ The `dev` environment currently provisions:
 
 The storage account enables blob versioning, change feed, and 30-day soft delete for blobs and containers.
 
+### State storage security (`allow_nested_items_to_be_public = false`)
+
+The tfstate storage account sets **`allow_nested_items_to_be_public = false`**. This is important for a bootstrap backend:
+
+- **What it does:** Prevents blobs (including state files) from being exposed via anonymous public read, even if someone later changes a container or blob ACL incorrectly.
+- **Why it matters:** Remote state contains resource IDs, and often secrets or sensitive metadata. Public blob access on a state account is a common misconfiguration that leads to data exposure.
+- **Defense in depth:** The `tfstate` container is already `private`, but account-level public access blocking closes a hole that container settings alone do not always prevent.
+
+Do not set this to `true` on the Terraform state storage account unless you have a rare, documented requirement and additional controls.
+
 Each GitHub repo that runs Terraform should follow the same pattern: its own deploy identity and RBAC scoped only to the resource groups and state storage that repo needs. This stack configures RBAC for **this** repository only.
 
 ## Naming conventions
@@ -113,7 +123,7 @@ Edit `terraform.tfvars` and set at minimum:
 - `github_owner` — your GitHub user or organization name (for OIDC)
 - `location` — your Azure region
 
-Do **not** commit `terraform.tfvars`, `backend.tf` (once populated), or state files. These are listed in `.gitignore`.
+Do **not** commit `terraform.tfvars`, `backend.tf` (once populated), state files, or `.terraform.lock.hcl`. These are listed in `.gitignore`.
 
 ## Bootstrap workflow
 
@@ -273,6 +283,7 @@ Resource groups follow `rg-{github-repo-name}-{env}` (for example, `rg-terraform
 
 ## Security notes
 
+- Keep **`allow_nested_items_to_be_public = false`** on the state storage account (see [State storage security](#state-storage-security-allow_nested_items_to_be_public--false)).
 - Never commit subscription IDs, storage account access keys, or populated `terraform.tfvars` / `backend.tf` files.
 - Use `terraform.tfvars.example` and `backend.tf.example` as templates only.
 - Review `terraform plan` before every apply.
