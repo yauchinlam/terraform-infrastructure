@@ -93,7 +93,8 @@ Subscription IDs and other account-specific values belong in private configurati
         ├── rbac.tf                  # Role assignments for the deploy identity
         ├── oidc.tf                  # GitHub Actions federated identity credential
         ├── outputs.tf               # Values needed for backend config and CI setup
-        ├── backend.tf.example       # Remote backend template (apply after first run)
+        ├── backend.tf               # Remote backend config (committed after bootstrap)
+        ├── backend.tf.example       # Template for first migrate or new environments
         ├── terraform.tfvars.example # Private config template (copy to terraform.tfvars)
         └── .terraform.lock.hcl      # Provider version lock (commit after terraform init)
 ```
@@ -121,6 +122,7 @@ export ARM_SUBSCRIPTION_ID="<subscription-id>"
 
 - Terraform resource definitions
 - Example files: `terraform.tfvars.example`, `backend.tf.example`
+- `backend.tf` — remote state target (no secrets; storage account name only)
 - Generic naming defaults (for example, `github_repo_name = "terraform-infrastructure"`)
 
 ### Not committed (required locally / in CI)
@@ -128,10 +130,9 @@ export ARM_SUBSCRIPTION_ID="<subscription-id>"
 | File / setting | Purpose |
 |----------------|---------|
 | `terraform.tfvars` | Environment-specific values (`location`, tags, etc.) |
-| `backend.tf` | Remote state config for local runs (copy from `backend.tf.example`; gitignored) |
 | `ARM_SUBSCRIPTION_ID` or `az account set` | Target Azure subscription |
 | Azure credentials | `az login` locally, or OIDC managed identity in CI |
-| GitHub repository variables | Azure IDs and backend settings for `.github/workflows/terraform.yml` |
+| GitHub repository variables | Azure identity and subscription for `azure/login` in CI |
 
 Copy the example file to create private config:
 
@@ -145,7 +146,7 @@ Edit `terraform.tfvars` and set at minimum:
 - `github_owner` — your GitHub user or organization name (for OIDC)
 - `location` — your Azure region
 
-Do **not** commit `terraform.tfvars`, `backend.tf` (once populated), or state files. These are listed in `.gitignore`.
+Do **not** commit `terraform.tfvars` or state files. These are listed in `.gitignore`.
 
 **Do commit** `environments/dev/.terraform.lock.hcl` after `terraform init`. The lock file pins provider versions so local runs and CI use the same `azurerm` release.
 
@@ -270,6 +271,8 @@ Confirm the migration when prompted, or use `-force-copy` to skip the confirmati
 
 After a successful migration, you can delete local state files if they remain (`terraform.tfstate`, `terraform.tfstate.backup`).
 
+Commit `backend.tf` to the repository so local runs and GitHub Actions share the same backend configuration (it contains no access keys).
+
 ### Step 4 — Configure GitHub repository variables
 
 Complete this **after Step 3**. Set these under **Settings → Secrets and variables → Actions → Variables** on your GitHub repository:
@@ -280,14 +283,10 @@ Complete this **after Step 3**. Set these under **Settings → Secrets and varia
 | `AZURE_TENANT_ID` | `terraform output -raw tenant_id` |
 | `AZURE_SUBSCRIPTION_ID` | Your subscription ID (`az account show --query id -o tsv`) |
 | `AZURE_LOCATION` | Same value as `location` in your `terraform.tfvars` |
-| `AZURE_BACKEND_RESOURCE_GROUP` | `terraform output -raw resource_group_name` |
-| `AZURE_BACKEND_STORAGE_ACCOUNT` | `terraform output -raw tfstate_storage_account_name` |
-| `AZURE_BACKEND_CONTAINER` | `tfstate` |
-| `AZURE_BACKEND_KEY` | Same state key as `backend.tf` (e.g. `bootstrap/dev.tfstate`) |
 
-Do not commit subscription IDs or other account-specific values to this repository. Store them only in gitignored local files or GitHub Actions variables/secrets.
+The workflow uses the committed `backend.tf` for remote state. Backend settings are not passed via separate GitHub variables.
 
-The workflow generates a temporary `backend.tf` at runtime (with `use_azuread_auth = true` and `use_oidc = true`) and passes backend settings from these variables. `backend.tf` remains gitignored for local use.
+Do not commit subscription IDs in Terraform code. Store `AZURE_SUBSCRIPTION_ID` in GitHub Actions variables or secrets, not in `terraform.tfvars` if you plan to publish the repo.
 
 ### Step 5 — Run GitHub Actions (after Steps 1–4)
 
@@ -354,8 +353,8 @@ Resource groups follow `rg-{github-repo-name}-{env}` (for example, `rg-terraform
 
 - Review [State storage security](#state-storage-security) before first `terraform apply`; do not weaken storage or RBAC settings without cause.
 - Use **`use_azuread_auth = true`** and **`use_oidc = true`** on the provider and backend; never store storage account keys in GitHub or this repository.
-- Never commit subscription IDs, storage account access keys, or populated `terraform.tfvars` / `backend.tf` files.
-- Use `terraform.tfvars.example` and `backend.tf.example` as templates only.
+- Never commit storage account access keys or populated `terraform.tfvars`.
+- Use `terraform.tfvars.example` and `backend.tf.example` as templates when bootstrapping a new environment.
 - Review `terraform plan` before every apply.
 - Restrict who can write to the state storage account; it contains sensitive infrastructure metadata.
 
@@ -368,7 +367,7 @@ Resource groups follow `rg-{github-repo-name}-{env}` (for example, `rg-terraform
 | Backend init fails | Verify storage account name, RG name, and that you are authenticated |
 | `init -migrate-state` returns 403 | Complete [Step 2](#step-2--grant-your-user-blob-access-before-migrating-state); wait for Entra propagation; confirm `az storage blob list --auth-mode login` works |
 | GitHub Actions auth fails | Confirm repo variables, that the workflow runs on `main`, and OIDC subject matches |
-| GitHub Actions init fails | Complete Step 3 first; verify backend variable values match `terraform output` |
+| GitHub Actions init fails | Complete Step 3 first; verify committed `backend.tf` matches `terraform output` |
 | `Azure CLI is only supported as a User` in CI | Set **`use_oidc = true`** on the [azurerm provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_oidc) and **backend** (see [hashicorp/terraform#34456](https://github.com/hashicorp/terraform/issues/34456)); ensure `azure/login` runs before `terraform init` |
 | Storage account name conflict | Names are globally unique; adjust `github_repo_name` or add a suffix strategy if needed |
 

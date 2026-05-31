@@ -56,24 +56,8 @@ jobs:
         with:
           terraform_version: 1.5.0
 
-      - name: Configure remote backend
-        run: |
-          cat > backend.tf <<'EOF'
-          terraform {
-            backend "azurerm" {
-              use_azuread_auth = true
-              use_oidc           = true
-            }
-          }
-          EOF
-
       - name: Terraform init
-        run: |
-          terraform init \
-            -backend-config="resource_group_name=${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}" \
-            -backend-config="storage_account_name=${{ vars.AZURE_BACKEND_STORAGE_ACCOUNT }}" \
-            -backend-config="container_name=${{ vars.AZURE_BACKEND_CONTAINER }}" \
-            -backend-config="key=${{ vars.AZURE_BACKEND_KEY }}"
+        run: terraform init
 
       - name: Terraform plan
         if: inputs.action == 'plan' || inputs.action == 'apply'
