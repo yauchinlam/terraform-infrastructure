@@ -153,20 +153,22 @@ Do **not** commit `terraform.tfvars`, `backend.tf` (once populated), or state fi
 
 This stack uses a **local state first** pattern. The storage account that will hold remote state does not exist until after the first apply, so the initial run cannot use the Azure backend yet.
 
-Complete these **four steps in order**:
+Complete these **five steps in order**:
 
 | Step | What | Where |
 |------|------|--------|
 | **1** | First apply (local state) | Your machine |
-| **2** | Migrate state to Azure Storage | Your machine |
-| **3** | Configure GitHub repository variables | GitHub repo settings |
-| **4** | Run the Terraform workflow | GitHub Actions (`workflow_dispatch`) |
+| **2** | Grant your user blob access for state migration | Azure (one-time) |
+| **3** | Migrate state to Azure Storage | Your machine |
+| **4** | Configure GitHub repository variables | GitHub repo settings |
+| **5** | Run the Terraform workflow | GitHub Actions (`workflow_dispatch`) |
 
 ```mermaid
 flowchart TD
-  A["Step 1: Copy terraform.tfvars + local apply"] --> B["Step 2: backend.tf + init -migrate-state"]
-  B --> C["Step 3: Configure GitHub repo variables"]
-  C --> D["Step 4: Run workflow_dispatch on main"]
+  A["Step 1: Copy terraform.tfvars + local apply"] --> B["Step 2: Blob RBAC for signed-in user"]
+  B --> C["Step 3: backend.tf + init -migrate-state"]
+  C --> D["Step 4: Configure GitHub repo variables"]
+  D --> E["Step 5: Run workflow_dispatch on main"]
 ```
 
 ### Step 1 — First apply (local state)
@@ -201,9 +203,49 @@ Key outputs:
 - `tenant_id` — GitHub variable `AZURE_TENANT_ID` (sensitive output)
 - `github_oidc_subject_main` — confirms OIDC trust is scoped to `main` on this repo
 
-### Step 2 — Migrate to remote state
+### Step 2 — Grant your user blob access (before migrating state)
 
-After the first apply succeeds:
+With **`shared_access_key_enabled = false`**, Terraform must read and write state using **Azure AD**, not storage account keys. The deploy managed identity’s **Storage Blob Data Contributor** role (Step 1) applies only to that identity for GitHub Actions—it does **not** include your signed-in user on your laptop.
+
+Before `terraform init -migrate-state`, assign **Storage Blob Data Contributor** to the account you use with `az login`:
+
+```bash
+cd environments/dev
+
+USER_ID="$(az ad signed-in-user show --query id -o tsv)"
+SCOPE="$(terraform output -raw tfstate_storage_account_id)"
+
+az role assignment create \
+  --role "Storage Blob Data Contributor" \
+  --assignee-object-id "$USER_ID" \
+  --assignee-principal-type User \
+  --scope "$SCOPE"
+```
+
+PowerShell equivalent:
+
+```powershell
+$userId = az ad signed-in-user show --query id -o tsv
+$scope  = terraform output -raw tfstate_storage_account_id
+az role assignment create --role "Storage Blob Data Contributor" --assignee-object-id $userId --assignee-principal-type User --scope $scope
+```
+
+Wait **one to two minutes** for Entra ID propagation, then confirm blob access:
+
+```bash
+az storage blob list \
+  --account-name "$(terraform output -raw tfstate_storage_account_name)" \
+  --container-name tfstate \
+  --auth-mode login
+```
+
+If this command returns 403, wait and retry before Step 3. You need permission to **list** and **write** blobs in the `tfstate` container.
+
+This assignment is for **operators running Terraform locally**. It is separate from the deploy identity used in CI. Remove or narrow it later if your organization uses a different operator access model.
+
+### Step 3 — Migrate to remote state
+
+After Step 1 succeeds and Step 2 blob access works:
 
 ```bash
 cp backend.tf.example backend.tf
@@ -223,11 +265,13 @@ Then migrate state:
 terraform init -migrate-state
 ```
 
-Confirm the migration when prompted. State moves from the local file into the Azure storage account this stack created.
+Confirm the migration when prompted, or use `-force-copy` to skip the confirmation prompt. State moves from the local file into the Azure storage account this stack created.
 
-### Step 3 — Configure GitHub repository variables
+After a successful migration, you can delete local state files if they remain (`terraform.tfstate`, `terraform.tfstate.backup`).
 
-Complete this **after Step 2**. Set these under **Settings → Secrets and variables → Actions → Variables** on your GitHub repository:
+### Step 4 — Configure GitHub repository variables
+
+Complete this **after Step 3**. Set these under **Settings → Secrets and variables → Actions → Variables** on your GitHub repository:
 
 | Variable | Source |
 |----------|--------|
@@ -244,9 +288,9 @@ Do not commit subscription IDs or other account-specific values to this reposito
 
 The workflow generates a temporary `backend.tf` at runtime (with `use_azuread_auth = true`) and passes backend settings from these variables. `backend.tf` remains gitignored for local use.
 
-### Step 4 — Run GitHub Actions (after Steps 1–3)
+### Step 5 — Run GitHub Actions (after Steps 1–4)
 
-The workflow at `.github/workflows/terraform.yml` is included in this repo but **does not work until Steps 1–3 are complete**. The first apply must create the storage account and migrate state before CI can use a remote backend.
+The workflow at `.github/workflows/terraform.yml` is included in this repo but **does not work until Steps 1–4 are complete**. The first apply must create the storage account and migrate state before CI can use a remote backend.
 
 The workflow uses **`workflow_dispatch` only** — it does not run on every push. Run it manually from the GitHub Actions tab until you are ready to add `push`/`pull_request` triggers on `main`.
 
@@ -266,7 +310,7 @@ Only workflows running on the **`main` branch** of this repo can authenticate as
 
 #### Run the workflow
 
-1. Complete Steps 1–3.
+1. Complete Steps 1–4.
 2. Push this repo to GitHub and merge to `main`.
 3. Open **Actions → Terraform → Run workflow**.
 4. Choose `plan` or `apply`.
@@ -275,7 +319,7 @@ When you are ready for automatic runs, add triggers to `terraform.yml` (for exam
 
 ### Ongoing local use
 
-After Step 2, you can also run Terraform locally without GitHub Actions:
+After Step 3, you can also run Terraform locally without GitHub Actions:
 
 - `terraform.tfvars`
 - `backend.tf` (with real values)
@@ -286,7 +330,7 @@ terraform plan
 terraform apply
 ```
 
-Local Terraform runs use your own Azure credentials (`az login`). GitHub Actions uses the deploy managed identity via OIDC once Steps 2–4 are complete.
+Local Terraform runs use your own Azure credentials (`az login`). GitHub Actions uses the deploy managed identity via OIDC once Steps 3–5 are complete.
 
 ## What is not included yet
 
@@ -321,8 +365,9 @@ Resource groups follow `rg-{github-repo-name}-{env}` (for example, `rg-terraform
 | Wrong subscription | `az account show` or `terraform output subscription_id` after apply |
 | Missing variables | Ensure `terraform.tfvars` exists and sets required values (e.g. `location`) |
 | Backend init fails | Verify storage account name, RG name, and that you are authenticated |
+| `init -migrate-state` returns 403 | Complete [Step 2](#step-2--grant-your-user-blob-access-before-migrating-state); wait for Entra propagation; confirm `az storage blob list --auth-mode login` works |
 | GitHub Actions auth fails | Confirm repo variables, that the workflow runs on `main`, and OIDC subject matches |
-| GitHub Actions init fails | Complete Step 2 first; verify backend variable values match `terraform output` |
+| GitHub Actions init fails | Complete Step 3 first; verify backend variable values match `terraform output` |
 | Storage account name conflict | Names are globally unique; adjust `github_repo_name` or add a suffix strategy if needed |
 
 ## License
