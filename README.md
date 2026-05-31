@@ -293,8 +293,6 @@ gh secret set AZURE_SUBSCRIPTION_ID --body "<subscription_id>" --repo <owner>/te
 gh secret set AZURE_LOCATION --body "<azure_region>" --repo <owner>/terraform-infrastructure
 ```
 
-If you previously created **repository Variables** with the same names, delete them under **Settings → Secrets and variables → Actions → Variables** so only Secrets are used.
-
 The workflow uses the committed `backend.tf` for remote state.
 
 **Also required for `terraform plan` in CI:** set secret `TF_VAR_github_owner` to the same value as `github_owner` in your `terraform.tfvars` (for example your GitHub username). The workflow passes it as `TF_VAR_github_owner`. Without it, the plan step prompts for `var.github_owner` and fails in Actions.
