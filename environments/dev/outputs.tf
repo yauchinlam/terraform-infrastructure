@@ -7,6 +7,7 @@ output "tenant_id" {
 output "subscription_id" {
   description = "Azure subscription ID used by the provider for this run."
   value       = data.azurerm_client_config.current.subscription_id
+  sensitive   = true
 }
 
 output "resource_group_name" {

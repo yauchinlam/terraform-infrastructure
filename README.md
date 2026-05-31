@@ -132,7 +132,7 @@ export ARM_SUBSCRIPTION_ID="<subscription-id>"
 | `terraform.tfvars` | Environment-specific values (`location`, tags, etc.) |
 | `ARM_SUBSCRIPTION_ID` or `az account set` | Target Azure subscription |
 | Azure credentials | `az login` locally, or OIDC managed identity in CI |
-| GitHub repository variables | Azure identity and subscription for `azure/login` in CI |
+| GitHub repository secrets | Azure identity, subscription, and region for `azure/login` and Terraform in CI (not Variables—secrets are masked in logs) |
 
 Copy the example file to create private config:
 
@@ -161,14 +161,14 @@ Complete these **five steps in order**:
 | **1** | First apply (local state) | Your machine |
 | **2** | Grant your user blob access for state migration | Azure (one-time) |
 | **3** | Migrate state to Azure Storage | Your machine |
-| **4** | Configure GitHub repository variables | GitHub repo settings |
+| **4** | Configure GitHub repository secrets | GitHub repo settings |
 | **5** | Run the Terraform workflow | GitHub Actions (`workflow_dispatch`) |
 
 ```mermaid
 flowchart TD
   A["Step 1: Copy terraform.tfvars + local apply"] --> B["Step 2: Blob RBAC for signed-in user"]
   B --> C["Step 3: backend.tf + init -migrate-state"]
-  C --> D["Step 4: Configure GitHub repo variables"]
+  C --> D["Step 4: Configure GitHub repo secrets"]
   D --> E["Step 5: Run workflow_dispatch on main"]
 ```
 
@@ -200,8 +200,8 @@ Key outputs:
 
 - `tfstate_storage_account_name` — for `backend.tf` and GitHub backend variables
 - `resource_group_name` — for `backend.tf` and GitHub backend variables
-- `deploy_identity_client_id` — GitHub variable `AZURE_CLIENT_ID`
-- `tenant_id` — GitHub variable `AZURE_TENANT_ID` (sensitive output)
+- `deploy_identity_client_id` — GitHub secret `AZURE_CLIENT_ID`
+- `tenant_id` — GitHub secret `AZURE_TENANT_ID` (sensitive output)
 - `github_oidc_subject_main` — confirms OIDC trust is scoped to `main` on this repo
 
 ### Step 2 — Grant your user blob access (before migrating state)
@@ -273,20 +273,33 @@ After a successful migration, you can delete local state files if they remain (`
 
 Commit `backend.tf` to the repository so local runs and GitHub Actions share the same backend configuration (it contains no access keys).
 
-### Step 4 — Configure GitHub repository variables
+### Step 4 — Configure GitHub repository secrets
 
-Complete this **after Step 3**. Set these under **Settings → Secrets and variables → Actions → Variables** on your GitHub repository:
+Complete this **after Step 3**. Store these under **Settings → Secrets and variables → Actions → Secrets** (not **Variables**). Secrets are masked as `***` in workflow logs; repository Variables often appear in plain text.
 
-| Variable | Source |
-|----------|--------|
+| Secret | Source |
+|--------|--------|
 | `AZURE_CLIENT_ID` | `terraform output -raw deploy_identity_client_id` |
 | `AZURE_TENANT_ID` | `terraform output -raw tenant_id` |
-| `AZURE_SUBSCRIPTION_ID` | Your subscription ID (`az account show --query id -o tsv`) |
+| `AZURE_SUBSCRIPTION_ID` | `az account show --query id -o tsv` |
 | `AZURE_LOCATION` | Same value as `location` in your `terraform.tfvars` |
 
-The workflow uses the committed `backend.tf` for remote state. Backend settings are not passed via separate GitHub variables.
+CLI example (replace placeholders; do not commit real values):
 
-Do not commit subscription IDs in Terraform code. Store `AZURE_SUBSCRIPTION_ID` in GitHub Actions variables or secrets, not in `terraform.tfvars` if you plan to publish the repo.
+```bash
+gh secret set AZURE_CLIENT_ID --body "<deploy_identity_client_id>" --repo <owner>/terraform-infrastructure
+gh secret set AZURE_TENANT_ID --body "<tenant_id>" --repo <owner>/terraform-infrastructure
+gh secret set AZURE_SUBSCRIPTION_ID --body "<subscription_id>" --repo <owner>/terraform-infrastructure
+gh secret set AZURE_LOCATION --body "<azure_region>" --repo <owner>/terraform-infrastructure
+```
+
+If you previously created **repository Variables** with the same names, delete them under **Settings → Secrets and variables → Actions → Variables** so only Secrets are used.
+
+The workflow uses the committed `backend.tf` for remote state.
+
+**Also required for `terraform plan` in CI:** set secret `TF_VAR_github_owner` to the same value as `github_owner` in your `terraform.tfvars` (for example your GitHub username). The workflow passes it as `TF_VAR_github_owner`. Without it, the plan step prompts for `var.github_owner` and fails in Actions.
+
+Do not commit subscription IDs, tenant IDs, or client IDs in Terraform code or the README.
 
 ### Step 5 — Run GitHub Actions (after Steps 1–4)
 
@@ -369,7 +382,8 @@ Resource groups follow `rg-{github-repo-name}-{env}` (for example, `rg-terraform
 | GitHub Actions auth fails | Confirm repo variables, that the workflow runs on `main`, and OIDC subject matches |
 | GitHub Actions init fails | Complete Step 3 first; verify committed `backend.tf` matches `terraform output` |
 | `unsupported checkable object kind "var"` | CI Terraform is older than the version that wrote remote state; align workflow `terraform_version` with local (`terraform version`) |
-| `Tenant ID / Client ID must be configured when authenticating with OIDC` | Workflow must set `ARM_USE_OIDC`, `ARM_CLIENT_ID`, `ARM_TENANT_ID`, and `ARM_SUBSCRIPTION_ID` (from GitHub variables) on Terraform steps; `azure/login` alone is not enough for `terraform init` |
+| `Tenant ID / Client ID must be configured when authenticating with OIDC` | Workflow must set `ARM_USE_OIDC`, `ARM_CLIENT_ID`, `ARM_TENANT_ID`, and `ARM_SUBSCRIPTION_ID` from GitHub **secrets**; `azure/login` alone is not enough for `terraform init` |
+| Subscription or tenant ID visible in logs | Use **Secrets**, not **Variables**, for `AZURE_SUBSCRIPTION_ID` and `AZURE_TENANT_ID`; delete duplicate repository Variables |
 | `Azure CLI is only supported as a User` in CI | Set **`use_oidc = true`** on the [azurerm provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_oidc) and **backend** (see [hashicorp/terraform#34456](https://github.com/hashicorp/terraform/issues/34456)) |
 | Storage account name conflict | Names are globally unique; adjust `github_repo_name` or add a suffix strategy if needed |
 
