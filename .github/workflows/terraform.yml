@@ -27,15 +27,19 @@ permissions:
   id-token: write
   contents: read
 
-env:
-  TF_IN_AUTOMATION: true
-  TF_VAR_location: ${{ vars.AZURE_LOCATION }}
-
 jobs:
   terraform:
     name: Terraform (${{ inputs.action }})
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+    env:
+      TF_IN_AUTOMATION: true
+      TF_VAR_location: ${{ vars.AZURE_LOCATION }}
+      # Required when provider/backend use_oidc = true (see azurerm OIDC guide)
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
     defaults:
       run:
         working-directory: environments/dev
