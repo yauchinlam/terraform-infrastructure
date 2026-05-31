@@ -30,7 +30,6 @@ permissions:
 env:
   TF_IN_AUTOMATION: true
   TF_VAR_location: ${{ vars.AZURE_LOCATION }}
-  TF_VAR_use_azure_cli_auth: "false"
 
 jobs:
   terraform:
@@ -63,6 +62,7 @@ jobs:
           terraform {
             backend "azurerm" {
               use_azuread_auth = true
+              use_oidc           = true
             }
           }
           EOF

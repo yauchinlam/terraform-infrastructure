@@ -16,6 +16,6 @@ terraform {
 provider "azurerm" {
   features {}
 
-  use_cli             = var.use_azure_cli_auth
+  use_oidc            = true
   storage_use_azuread = true
 }

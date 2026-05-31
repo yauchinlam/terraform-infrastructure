@@ -9,5 +9,6 @@
 #     container_name       = "tfstate"
 #     key                  = "bootstrap/<env>.tfstate"
 #     use_azuread_auth     = true
+#     use_oidc             = true
 #   }
 # }

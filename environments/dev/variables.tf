@@ -25,12 +25,6 @@ variable "location" {
   type        = string
 }
 
-variable "use_azure_cli_auth" {
-  description = "When true, the azurerm provider authenticates via Azure CLI (local az login). Set false in CI so OIDC/service principal credentials from azure/login are used instead."
-  type        = bool
-  default     = true
-}
-
 variable "tags" {
   description = "Tags applied to all resources in this stack."
   type        = map(string)
